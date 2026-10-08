@@ -1,166 +1,199 @@
+using FishNet.Object;
 using UnityEngine;
 
-
-public class PlayerMovementController : MonoBehaviour
+public class PlayerMovementController : NetworkBehaviour
 {
-
-
     // ===============================
     // MOVIMENTO
     // ===============================
 
     public float WalkSpeed = 5f;
-
     public float RunSpeed = 9f;
-
-
     public float JumpForce = 3f;
-
-
     public float Gravity = -20f;
-
-
 
     // ===============================
     // CAMERA
     // ===============================
 
     public Transform CameraTransform;
-
     public float MouseSensitivity = 200f;
-
-
 
     // ===============================
     // PRIVADOS
     // ===============================
 
     private CharacterController controller;
-
-
     private Vector3 velocity;
-
-
     private float cameraRotation = 0f;
 
-
+    private bool networkModeActive = false;
 
     // ===============================
-    // INICIO
+    // START LOCAL / LEGADO
     // ===============================
 
-    void Start()
+    private void Start()
     {
+        controller = GetComponent<CharacterController>();
 
-        controller =
-            GetComponent<CharacterController>();
+        /*
+         * Enquanto o personagem ainda for criado pelo
+         * PlayerSpawner antigo usando Instantiate(),
+         * ele continua funcionando normalmente.
+         */
+        if (!IsSpawned)
+        {
+            networkModeActive = false;
 
+            EnableLocalControl();
 
+            Debug.Log(
+                "[MOVEMENT] Modo local temporário ativo: "
+                + gameObject.name
+            );
+        }
+    }
+
+    // ===============================
+    // START FISHNET
+    // ===============================
+
+    public override void OnStartClient()
+    {
+        base.OnStartClient();
+
+        networkModeActive = true;
+
+        if (controller == null)
+        {
+            controller =
+                GetComponent<CharacterController>();
+        }
+
+        if (!IsOwner)
+        {
+            Debug.Log(
+                "[MOVEMENT] Jogador remoto detectado. "
+                + "Input local bloqueado: "
+                + gameObject.name
+            );
+
+            return;
+        }
+
+        EnableLocalControl();
+
+        Debug.Log(
+            "[MOVEMENT] Jogador FishNet local habilitado: "
+            + gameObject.name
+        );
+    }
+
+    // ===============================
+    // CONTROLE LOCAL
+    // ===============================
+
+    private void EnableLocalControl()
+    {
         Cursor.lockState =
             CursorLockMode.Locked;
 
-
+        Cursor.visible = false;
     }
 
+    // ===============================
+    // PODE CONTROLAR?
+    // ===============================
 
+    private bool CanControl()
+    {
+        /*
+         * Ainda não foi spawnado pelo FishNet:
+         * mantém funcionamento atual.
+         */
+        if (!networkModeActive)
+        {
+            return true;
+        }
 
-
+        /*
+         * Quando FishNet assumir:
+         * somente o owner controla.
+         */
+        return IsOwner;
+    }
 
     // ===============================
     // UPDATE
     // ===============================
 
-    void Update()
+    private void Update()
     {
+        if (!CanControl())
+            return;
 
         MovePlayer();
-
         ApplyGravity();
-
         CameraLook();
-
     }
 
-
-
-
-
     // ===============================
-    // MOVIMENTO PLAYER
+    // MOVIMENTO
     // ===============================
 
-    void MovePlayer()
+    private void MovePlayer()
     {
-
+        if (controller == null)
+            return;
 
         float x =
             Input.GetAxis("Horizontal");
 
-
         float z =
             Input.GetAxis("Vertical");
-
-
 
         Vector3 move =
             transform.right * x +
             transform.forward * z;
 
-
-
         float speed =
             Input.GetKey(KeyCode.LeftShift)
-            ?
-            RunSpeed
-            :
-            WalkSpeed;
-
-
+                ? RunSpeed
+                : WalkSpeed;
 
         controller.Move(
             move *
             speed *
             Time.deltaTime
         );
-
-
     }
-
-
-
-
 
     // ===============================
     // GRAVIDADE + PULO
     // ===============================
 
-    void ApplyGravity()
+    private void ApplyGravity()
     {
-
+        if (controller == null)
+            return;
 
         bool grounded =
             controller.isGrounded;
 
-
-
-        if (grounded && velocity.y < 0)
+        if (
+            grounded &&
+            velocity.y < 0
+        )
         {
-
             velocity.y = -2f;
-
         }
-
-
-
-
-        // ESPAÇO = PULAR
 
         if (
             grounded &&
             Input.GetKeyDown(KeyCode.Space)
         )
         {
-
             velocity.y =
                 Mathf.Sqrt(
                     JumpForce *
@@ -168,41 +201,29 @@ public class PlayerMovementController : MonoBehaviour
                     Gravity
                 );
 
-
             Debug.Log(
-                "Pulo executado"
+                "[MOVEMENT] Pulo executado."
             );
-
         }
-
-
-
 
         velocity.y +=
             Gravity *
             Time.deltaTime;
 
-
-
         controller.Move(
             velocity *
             Time.deltaTime
         );
-
-
     }
-
-
-
-
 
     // ===============================
     // CAMERA
     // ===============================
 
-    void CameraLook()
+    private void CameraLook()
     {
-
+        if (CameraTransform == null)
+            return;
 
         float mouseX =
             Input.GetAxis("Mouse X")
@@ -211,8 +232,6 @@ public class PlayerMovementController : MonoBehaviour
             *
             Time.deltaTime;
 
-
-
         float mouseY =
             Input.GetAxis("Mouse Y")
             *
@@ -220,24 +239,13 @@ public class PlayerMovementController : MonoBehaviour
             *
             Time.deltaTime;
 
-
-
-
-        // ROTACIONA PLAYER
-
         transform.Rotate(
             Vector3.up *
             mouseX
         );
 
-
-
-
-        // ROTACIONA CAMERA
-
-        cameraRotation -= mouseY;
-
-
+        cameraRotation -=
+            mouseY;
 
         cameraRotation =
             Mathf.Clamp(
@@ -246,17 +254,11 @@ public class PlayerMovementController : MonoBehaviour
                 80f
             );
 
-
-
         CameraTransform.localRotation =
             Quaternion.Euler(
                 cameraRotation,
                 0,
                 0
             );
-
-
     }
-
-
 }

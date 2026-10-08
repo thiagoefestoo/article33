@@ -1,7 +1,19 @@
+using System.Collections;
 using UnityEngine;
 
 public class GameInitializer : MonoBehaviour
 {
+    [Header("Inicialização")]
+    [SerializeField]
+    private float networkTimeoutSeconds = 20f;
+
+    private bool loadStarted = false;
+
+
+    // =====================================================
+    // AWAKE
+    // =====================================================
+
     private void Awake()
     {
         Debug.Log(
@@ -10,13 +22,28 @@ public class GameInitializer : MonoBehaviour
     }
 
 
+    // =====================================================
+    // START
+    // =====================================================
+
     private void Start()
     {
         Debug.Log(
             "===== START GAME INITIALIZER ====="
         );
 
+        StartCoroutine(
+            InitializeGame()
+        );
+    }
 
+
+    // =====================================================
+    // INICIALIZAÇÃO
+    // =====================================================
+
+    private IEnumerator InitializeGame()
+    {
         // =============================================
         // PLAYER SESSION
         // =============================================
@@ -27,12 +54,12 @@ public class GameInitializer : MonoBehaviour
                 "[GAME] PlayerSession NÃO EXISTE."
             );
 
-            return;
+            yield break;
         }
 
 
         // =============================================
-        // USUÁRIO PRECISA ESTAR LOGADO
+        // USUÁRIO AUTENTICADO
         // =============================================
 
         if (!PlayerSession.Instance.authenticated)
@@ -41,12 +68,12 @@ public class GameInitializer : MonoBehaviour
                 "[GAME] Nenhum usuário autenticado."
             );
 
-            return;
+            yield break;
         }
 
 
         // =============================================
-        // PERSONAGEM PRECISA ESTAR SELECIONADO
+        // PERSONAGEM SELECIONADO
         // =============================================
 
         if (PlayerSession.Instance.characterId <= 0)
@@ -55,7 +82,7 @@ public class GameInitializer : MonoBehaviour
                 "[GAME] Nenhum personagem selecionado."
             );
 
-            return;
+            yield break;
         }
 
 
@@ -69,9 +96,100 @@ public class GameInitializer : MonoBehaviour
                 "[GAME] UnityService NÃO EXISTE."
             );
 
-            return;
+            yield break;
         }
 
+
+        // =============================================
+        // AGUARDA BOOTSTRAP MULTIPLAYER
+        // =============================================
+
+        Debug.Log(
+            "[GAME] Aguardando inicialização do multiplayer..."
+        );
+
+        float elapsedTime = 0f;
+
+
+        while (
+            Artigo33NetworkBootstrap.Instance == null &&
+            elapsedTime < networkTimeoutSeconds
+        )
+        {
+            elapsedTime +=
+                Time.unscaledDeltaTime;
+
+            yield return null;
+        }
+
+
+        if (
+            Artigo33NetworkBootstrap.Instance == null
+        )
+        {
+            Debug.LogError(
+                "[GAME] MultiplayerBootstrap não foi encontrado."
+            );
+
+            yield break;
+        }
+
+
+        // =============================================
+        // AGUARDA REDE PRONTA
+        // =============================================
+
+        while (
+            !Artigo33NetworkBootstrap.Instance.IsNetworkReady &&
+            elapsedTime < networkTimeoutSeconds
+        )
+        {
+            elapsedTime +=
+                Time.unscaledDeltaTime;
+
+            yield return null;
+        }
+
+
+        if (
+            !Artigo33NetworkBootstrap.Instance.IsNetworkReady
+        )
+        {
+            Debug.LogError(
+                "[GAME] Timeout aguardando conexão com "
+                + "o servidor multiplayer."
+            );
+
+            yield break;
+        }
+
+
+        Debug.Log(
+            "[GAME] Rede multiplayer pronta."
+        );
+
+
+        // =============================================
+        // EVITA DUPLICIDADE
+        // =============================================
+
+        if (loadStarted)
+        {
+            Debug.LogWarning(
+                "[GAME] Carregamento do personagem "
+                + "já foi iniciado."
+            );
+
+            yield break;
+        }
+
+
+        loadStarted = true;
+
+
+        // =============================================
+        // DADOS DA SESSÃO
+        // =============================================
 
         int userId =
             PlayerSession.Instance.userId;
@@ -92,6 +210,10 @@ public class GameInitializer : MonoBehaviour
             + characterId
         );
 
+
+        // =============================================
+        // CARREGA DADOS DO BACKEND
+        // =============================================
 
         UnityService.Instance.LoadPlayer(
             userId,

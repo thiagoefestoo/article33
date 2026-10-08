@@ -39,14 +39,12 @@ public class UnityService : MonoBehaviour
             "[UnityService] Carregando jogador."
         );
 
-
         Debug.Log(
             "[UnityService] UserId: "
             + userId
             + " | CharacterId: "
             + characterId
         );
-
 
         StartCoroutine(
             LoadPlayerRequest(
@@ -131,7 +129,6 @@ public class UnityService : MonoBehaviour
                 "[UnityService] JSON recebido:"
             );
 
-
             Debug.Log(json);
 
 
@@ -189,7 +186,7 @@ public class UnityService : MonoBehaviour
 
 
             // =================================================
-            // ATUALIZAR PLAYER MANAGER
+            // PLAYER MANAGER
             // =================================================
 
             if (PlayerManager.Instance != null)
@@ -209,39 +206,21 @@ public class UnityService : MonoBehaviour
 
 
             // =================================================
-            // SPAWN DO PERSONAGEM
+            // IMPORTANTE:
+            // O PERSONAGEM NÃO É MAIS INSTANCIADO AQUI.
+            //
+            // O PlayerArmature agora é criado pelo
+            // FishNet PlayerSpawner quando o cliente conecta.
             // =================================================
 
-            if (PlayerSpawner.Instance != null)
-            {
-                GameObject spawnedPlayer =
-                    PlayerSpawner.Instance.SpawnPlayer(
-                        response.player
-                    );
-
-
-                if (spawnedPlayer != null)
-                {
-                    Debug.Log(
-                        "[UnityService] Personagem instanciado com sucesso: "
-                        + response.player.name
-                        + " | CharacterId: "
-                        + response.player.characterId
-                    );
-                }
-                else
-                {
-                    Debug.LogError(
-                        "[UnityService] Falha ao instanciar personagem."
-                    );
-                }
-            }
-            else
-            {
-                Debug.LogError(
-                    "[UnityService] PlayerSpawner.Instance não encontrado."
-                );
-            }
+            Debug.Log(
+                "[UnityService] Dados do personagem carregados."
+                + "\nNome: "
+                + response.player.name
+                + "\nCharacterId: "
+                + response.player.characterId
+                + "\nSpawn: controlado pelo FishNet."
+            );
 
 
             // =================================================
@@ -264,7 +243,7 @@ public class UnityService : MonoBehaviour
 
 
             // =================================================
-            // INICIAR SESSÃO ONLINE
+            // INICIAR HEARTBEAT / SESSÃO API
             // =================================================
 
             if (NetworkClient.Instance != null)
@@ -343,7 +322,6 @@ public class UnityService : MonoBehaviour
         Debug.Log(
             "[UnityService] Salvando jogador:"
         );
-
 
         Debug.Log(json);
 
