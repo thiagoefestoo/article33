@@ -6,14 +6,14 @@ using UnityEngine;
 
 // =====================================================
 // ARTIGO33 - MULTIPLAYER NETWORK BOOTSTRAP
-// UNITY 6 + FISHNET + AWS EC2
+// Unity 6 + FishNet + AWS EC2
 //
-// Modos:
-// DevelopmentHost - Servidor e cliente local
-// Client          - Cliente remoto
-// DedicatedServer - Servidor Linux dedicado
+// Editor: DevelopmentHost (configuravel)
+// Windows: Client
+// Linux Dedicated Server: DedicatedServer
 //
-// API HTTPS e banco Neon utilizam uma conexão separada.
+// Transporte FishNet: UDP 7770
+// API HTTPS: configurada separadamente em ApiConfig
 // =====================================================
 
 public class Artigo33NetworkBootstrap : MonoBehaviour
@@ -31,21 +31,24 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
     [SerializeField]
     private NetworkManager networkManager;
 
-    [Header("Modo de Inicialização")]
+    [Header("Modo de Inicializacao")]
     [SerializeField]
     private NetworkStartMode startMode =
         NetworkStartMode.DevelopmentHost;
 
-    [Header("Servidor Multiplayer")]
+    [Header("Servidor Multiplayer AWS")]
     [SerializeField]
     private string serverAddress = "54.94.200.173";
 
     [SerializeField]
     private ushort serverPort = 7770;
 
-    [Header("Desenvolvimento")]
+    [Header("Desenvolvimento Local")]
     [SerializeField]
     private string localServerAddress = "127.0.0.1";
+
+    private NetworkStartMode activeMode;
+    private bool eventsRegistered;
 
     public bool IsNetworkReady { get; private set; }
 
@@ -83,9 +86,8 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
         if (networkManager == null)
         {
             Debug.LogError(
-                "[MULTIPLAYER] NetworkManager não encontrado."
+                "[MULTIPLAYER] NetworkManager nao encontrado."
             );
-
             return;
         }
 
@@ -109,30 +111,30 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
         networkManager.ServerManager.OnServerConnectionState +=
             OnServerConnectionState;
 
+        eventsRegistered = true;
+
         StartNetworkAutomatically();
     }
 
     // =====================================================
-    // SELECIONAR MODO DE REDE
+    // SELECIONAR MODO CONFORME O AMBIENTE
     // =====================================================
 
     private void StartNetworkAutomatically()
     {
-        NetworkStartMode selectedMode = startMode;
-
 #if UNITY_SERVER
-        selectedMode = NetworkStartMode.DedicatedServer;
-#elif !UNITY_EDITOR
-        selectedMode = NetworkStartMode.Client;
+        activeMode = NetworkStartMode.DedicatedServer;
+#elif UNITY_EDITOR
+        activeMode = startMode;
+#else
+        activeMode = NetworkStartMode.Client;
 #endif
 
-        startMode = selectedMode;
-
         Debug.Log(
-            "[MULTIPLAYER] Modo de rede: " + startMode
+            "[MULTIPLAYER] Modo selecionado: " + activeMode
         );
 
-        switch (startMode)
+        switch (activeMode)
         {
             case NetworkStartMode.DevelopmentHost:
                 StartDevelopmentHost();
@@ -149,7 +151,7 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
     }
 
     // =====================================================
-    // HOST LOCAL DE DESENVOLVIMENTO
+    // HOST LOCAL - UNITY EDITOR
     // =====================================================
 
     private void StartDevelopmentHost()
@@ -158,7 +160,7 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
             return;
 
         Debug.Log(
-            "[MULTIPLAYER] Iniciando HOST local."
+            "[MULTIPLAYER] Iniciando host local."
         );
 
         if (!networkManager.ServerManager.Started)
@@ -184,22 +186,33 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
         if (networkManager == null)
         {
             Debug.LogError(
-                "[MULTIPLAYER] NetworkManager indisponível."
+                "[MULTIPLAYER] NetworkManager indisponivel."
             );
-
             return;
         }
+
+#if UNITY_SERVER
+        Debug.LogWarning(
+            "[MULTIPLAYER] Servidor dedicado nao inicia cliente."
+        );
+        return;
+#endif
 
         if (networkManager.ClientManager.Started)
             return;
 
+        string address =
+            activeMode == NetworkStartMode.DevelopmentHost
+                ? localServerAddress
+                : serverAddress;
+
         Debug.Log(
-            "[MULTIPLAYER] Conectando cliente ao servidor: " +
-            serverAddress + ":" + serverPort
+            "[MULTIPLAYER] Conectando em " +
+            address + ":" + serverPort
         );
 
         networkManager.ClientManager.StartConnection(
-            serverAddress,
+            address,
             serverPort
         );
     }
@@ -217,14 +230,14 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
             return;
 
         Debug.Log(
-            "[MULTIPLAYER] Iniciando servidor dedicado AWS."
+            "[MULTIPLAYER] Iniciando servidor dedicado."
         );
 
         networkManager.ServerManager.StartConnection();
     }
 
     // =====================================================
-    // CLIENT CONNECTION STATE
+    // ESTADO DO CLIENTE
     // =====================================================
 
     private void OnClientConnectionState(
@@ -239,25 +252,24 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
         if (args.ConnectionState ==
             LocalConnectionState.Started)
         {
-            Debug.Log(
-                "[MULTIPLAYER] CLIENTE CONECTADO."
-            );
-
             SetNetworkReady();
         }
         else if (args.ConnectionState ==
                  LocalConnectionState.Stopped)
         {
-            IsNetworkReady = false;
+            if (activeMode != NetworkStartMode.DedicatedServer)
+            {
+                IsNetworkReady = false;
+            }
 
             Debug.Log(
-                "[MULTIPLAYER] CLIENTE DESCONECTADO."
+                "[MULTIPLAYER] Cliente desconectado."
             );
         }
     }
 
     // =====================================================
-    // SERVER CONNECTION STATE
+    // ESTADO DO SERVIDOR
     // =====================================================
 
     private void OnServerConnectionState(
@@ -273,10 +285,10 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
             LocalConnectionState.Started)
         {
             Debug.Log(
-                "[MULTIPLAYER] SERVIDOR INICIADO."
+                "[MULTIPLAYER] Servidor iniciado."
             );
 
-            if (startMode ==
+            if (activeMode ==
                 NetworkStartMode.DedicatedServer)
             {
                 SetNetworkReady();
@@ -285,20 +297,20 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
         else if (args.ConnectionState ==
                  LocalConnectionState.Stopped)
         {
-            if (startMode ==
+            if (activeMode ==
                 NetworkStartMode.DedicatedServer)
             {
                 IsNetworkReady = false;
             }
 
             Debug.Log(
-                "[MULTIPLAYER] SERVIDOR ENCERRADO."
+                "[MULTIPLAYER] Servidor encerrado."
             );
         }
     }
 
     // =====================================================
-    // NETWORK READY
+    // REDE PRONTA
     // =====================================================
 
     private void SetNetworkReady()
@@ -316,7 +328,7 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
     }
 
     // =====================================================
-    // CONFIGURAR ENDERECO DO SERVIDOR
+    // CONFIGURAR ENDERECO MULTIPLAYER
     // =====================================================
 
     public void SetServerAddress(
@@ -327,9 +339,8 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
         if (string.IsNullOrWhiteSpace(address) || port == 0)
         {
             Debug.LogError(
-                "[MULTIPLAYER] Endereço ou porta inválidos."
+                "[MULTIPLAYER] Endereco ou porta invalidos."
             );
-
             return;
         }
 
@@ -351,7 +362,7 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
         if (Instance != this)
             return;
 
-        if (networkManager != null)
+        if (networkManager != null && eventsRegistered)
         {
             networkManager.ClientManager.OnClientConnectionState -=
                 OnClientConnectionState;
@@ -360,6 +371,8 @@ public class Artigo33NetworkBootstrap : MonoBehaviour
                 OnServerConnectionState;
         }
 
+        eventsRegistered = false;
+        IsNetworkReady = false;
         Instance = null;
     }
 }
