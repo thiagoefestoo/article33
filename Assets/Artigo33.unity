@@ -447,10 +447,10 @@ MonoBehaviour:
   _dontRoute: 0
   _reuseAddress: 0
   _ipv4BindAddress: 
-  _enableIpv6: 1
+  _enableIpv6: 0
   _ipv6BindAddress: 
   _port: 7770
-  _maximumClients: 4095
+  _maximumClients: 10
   _clientAddress: localhost
 --- !u!114 &385964550
 MonoBehaviour:
@@ -2437,6 +2437,7 @@ MonoBehaviour:
   startMode: 0
   serverAddress: localhost
   serverPort: 7770
+  localServerAddress: 127.0.0.1
 --- !u!4 &1779433623
 Transform:
   m_ObjectHideFlags: 0
