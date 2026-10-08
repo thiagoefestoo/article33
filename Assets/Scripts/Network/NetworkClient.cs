@@ -1,17 +1,37 @@
+
 using System.Collections;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
+
+// =====================================================
+// ARTIGO33 - NETWORK CLIENT
+// UNITY 6 + AWS HTTPS + NEON POSTGRESQL
+//
+// Sistemas:
+// - Carregamento do jogador
+// - Sessao persistente
+// - Heartbeat
+// - Controle de jogador online
+//
+// Comunicacao HTTP com a API .NET 10.
+// O multiplayer FishNet e configurado separadamente.
+// =====================================================
 
 public class NetworkClient : MonoBehaviour
 {
     public static NetworkClient Instance;
 
-    private string apiUrl = "http://localhost:5160";
+    // =====================================================
+    // CONFIGURACAO CENTRAL DA API
+    // =====================================================
+
+    private string ApiUrl =>
+        ApiConfig.BaseURL.TrimEnd('/');
 
     private int currentCharacterId;
 
     private Coroutine heartbeatCoroutine;
-
 
     // =====================================================
     // AWAKE
@@ -24,13 +44,16 @@ public class NetworkClient : MonoBehaviour
             Instance = this;
 
             DontDestroyOnLoad(gameObject);
+
+            Debug.Log(
+                "[NetworkClient] Inicializado. API: " + ApiUrl
+            );
         }
         else
         {
             Destroy(gameObject);
         }
     }
-
 
     // =====================================================
     // CARREGAR PLAYER
@@ -40,83 +63,89 @@ public class NetworkClient : MonoBehaviour
     public IEnumerator LoadPlayer(int userId)
     {
         string url =
-            apiUrl +
+            ApiUrl +
             "/api/unity/load/" +
             userId;
 
-
         Debug.Log(
-            "[NetworkClient] Conectando API: "
-            + url
+            "[NetworkClient] Conectando API: " + url
         );
 
-
-        using UnityWebRequest request =
-            UnityWebRequest.Get(url);
-
-
-        yield return request.SendWebRequest();
-
-
-        if (
-            request.result ==
-            UnityWebRequest.Result.Success
-        )
+        using (UnityWebRequest request =
+            UnityWebRequest.Get(url))
         {
-            Debug.Log(
-                "[NetworkClient] Resposta servidor:"
-            );
+            request.timeout = 30;
 
-            Debug.Log(
-                request.downloadHandler.text
-            );
+            yield return request.SendWebRequest();
 
+            if (request.result ==
+                UnityWebRequest.Result.Success)
+            {
+                Debug.Log(
+                    "[NetworkClient] Resposta servidor:"
+                );
 
-            UnityPlayerData data =
-                JsonUtility.FromJson<UnityPlayerData>(
+                Debug.Log(
                     request.downloadHandler.text
                 );
 
+                UnityPlayerData data = null;
 
-            if (
-                data != null &&
-                data.success &&
-                data.player != null
-            )
-            {
-                Debug.Log(
-                    "[NetworkClient] Jogador recebido: "
-                    + data.player.name
-                );
+                try
+                {
+                    data =
+                        JsonUtility.FromJson<UnityPlayerData>(
+                            request.downloadHandler.text
+                        );
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogError(
+                        "[NetworkClient] Erro ao interpretar jogador: "
+                        + ex.Message
+                    );
 
+                    yield break;
+                }
 
-                StartPlayerSession(
-                    userId,
-                    data.player.characterId,
-                    data.player.name
-                );
+                if (
+                    data != null &&
+                    data.success &&
+                    data.player != null
+                )
+                {
+                    Debug.Log(
+                        "[NetworkClient] Jogador recebido: "
+                        + data.player.name
+                    );
+
+                    StartPlayerSession(
+                        userId,
+                        data.player.characterId,
+                        data.player.name
+                    );
+                }
+                else
+                {
+                    Debug.LogError(
+                        "[NetworkClient] Dados do jogador inválidos."
+                    );
+                }
             }
             else
             {
                 Debug.LogError(
-                    "[NetworkClient] Dados do jogador inválidos."
+                    "[NetworkClient] Erro conexão | HTTP: "
+                    + request.responseCode
+                    + " | "
+                    + request.error
                 );
             }
         }
-        else
-        {
-            Debug.LogError(
-                "[NetworkClient] Erro conexão | HTTP: "
-                + request.responseCode
-                + " | "
-                + request.error
-            );
-        }
     }
 
-
     // =====================================================
-    // INICIAR SESSÃO DO PLAYER
+    // INICIAR SESSAO DO PLAYER
     // =====================================================
 
     public void StartPlayerSession(
@@ -125,12 +154,8 @@ public class NetworkClient : MonoBehaviour
         string playerName
     )
     {
-        currentCharacterId =
-            characterId;
-
-
         // =================================================
-        // PLAYER SESSION GLOBAL
+        // VALIDAR PLAYER SESSION
         // =================================================
 
         if (PlayerSession.Instance == null)
@@ -142,14 +167,17 @@ public class NetworkClient : MonoBehaviour
             return;
         }
 
+        // =================================================
+        // ATUALIZAR SESSAO GLOBAL
+        // =================================================
 
-        // Atualiza a sessão persistente
         PlayerSession.Instance.ConnectPlayer(
             userId,
             characterId,
             playerName
         );
 
+        currentCharacterId = characterId;
 
         Debug.Log(
             "[NetworkClient] Personagem ONLINE: "
@@ -160,27 +188,20 @@ public class NetworkClient : MonoBehaviour
             + characterId
         );
 
-
         // =================================================
         // EVITAR HEARTBEAT DUPLICADO
         // =================================================
 
         if (heartbeatCoroutine != null)
         {
-            StopCoroutine(
-                heartbeatCoroutine
-            );
+            StopCoroutine(heartbeatCoroutine);
 
             heartbeatCoroutine = null;
         }
 
-
         heartbeatCoroutine =
-            StartCoroutine(
-                HeartbeatLoop()
-            );
+            StartCoroutine(HeartbeatLoop());
     }
-
 
     // =====================================================
     // LOOP HEARTBEAT
@@ -192,34 +213,26 @@ public class NetworkClient : MonoBehaviour
             "[NetworkClient] Sistema heartbeat iniciado."
         );
 
-
         // Primeiro heartbeat imediato
         if (currentCharacterId > 0)
         {
             yield return StartCoroutine(
-                SendHeartbeat(
-                    currentCharacterId
-                )
+                SendHeartbeat(currentCharacterId)
             );
         }
-
 
         while (true)
         {
             yield return new WaitForSeconds(10f);
 
-
             if (currentCharacterId > 0)
             {
                 yield return StartCoroutine(
-                    SendHeartbeat(
-                        currentCharacterId
-                    )
+                    SendHeartbeat(currentCharacterId)
                 );
             }
         }
     }
-
 
     // =====================================================
     // ENVIAR HEARTBEAT
@@ -230,133 +243,108 @@ public class NetworkClient : MonoBehaviour
     )
     {
         string url =
-            apiUrl +
+            ApiUrl +
             "/api/unity/heartbeat";
-
 
         HeartbeatRequest heartbeat =
             new HeartbeatRequest
             {
-                characterId =
-                    characterId
+                characterId = characterId
             };
 
-
         string json =
-            JsonUtility.ToJson(
-                heartbeat
-            );
-
+            JsonUtility.ToJson(heartbeat);
 
         Debug.Log(
-            "[NetworkClient] Enviando heartbeat: "
-            + json
+            "[NetworkClient] Enviando heartbeat: " + json
         );
-
-
-        using UnityWebRequest request =
-            new UnityWebRequest(
-                url,
-                "POST"
-            );
-
 
         byte[] body =
-            System.Text.Encoding.UTF8
-                .GetBytes(json);
+            Encoding.UTF8.GetBytes(json);
 
-
-        request.uploadHandler =
-            new UploadHandlerRaw(body);
-
-
-        request.downloadHandler =
-            new DownloadHandlerBuffer();
-
-
-        request.SetRequestHeader(
-            "Content-Type",
-            "application/json"
-        );
-
-
-        yield return request.SendWebRequest();
-
-
-        if (
-            request.result ==
-            UnityWebRequest.Result.Success
-        )
+        using (UnityWebRequest request =
+            new UnityWebRequest(url, "POST"))
         {
-            Debug.Log(
-                "[NetworkClient] Heartbeat enviado | CharacterId: "
-                + characterId
+            request.uploadHandler =
+                new UploadHandlerRaw(body);
+
+            request.downloadHandler =
+                new DownloadHandlerBuffer();
+
+            request.SetRequestHeader(
+                "Content-Type",
+                "application/json"
             );
 
+            request.timeout = 30;
 
-            if (
-                request.downloadHandler != null &&
-                !string.IsNullOrEmpty(
-                    request.downloadHandler.text
-                )
-            )
+            yield return request.SendWebRequest();
+
+            if (request.result ==
+                UnityWebRequest.Result.Success)
             {
                 Debug.Log(
-                    "[NetworkClient] Resposta heartbeat: "
-                    + request.downloadHandler.text
+                    "[NetworkClient] Heartbeat enviado | CharacterId: "
+                    + characterId
                 );
-            }
-        }
-        else
-        {
-            Debug.LogError(
-                "[NetworkClient] Falha heartbeat | HTTP: "
-                + request.responseCode
-                + " | Erro: "
-                + request.error
-            );
 
-
-            if (
-                request.downloadHandler != null &&
-                !string.IsNullOrEmpty(
-                    request.downloadHandler.text
+                if (
+                    request.downloadHandler != null &&
+                    !string.IsNullOrEmpty(
+                        request.downloadHandler.text
+                    )
                 )
-            )
+                {
+                    Debug.Log(
+                        "[NetworkClient] Resposta heartbeat: "
+                        + request.downloadHandler.text
+                    );
+                }
+            }
+            else
             {
                 Debug.LogError(
-                    "[NetworkClient] Servidor respondeu: "
-                    + request.downloadHandler.text
+                    "[NetworkClient] Falha heartbeat | HTTP: "
+                    + request.responseCode
+                    + " | Erro: "
+                    + request.error
                 );
+
+                if (
+                    request.downloadHandler != null &&
+                    !string.IsNullOrEmpty(
+                        request.downloadHandler.text
+                    )
+                )
+                {
+                    Debug.LogError(
+                        "[NetworkClient] Servidor respondeu: "
+                        + request.downloadHandler.text
+                    );
+                }
             }
         }
     }
 
-
     // =====================================================
-    // PARAR SESSÃO LOCAL
+    // PARAR SESSAO LOCAL
     // =====================================================
 
     public void StopPlayerSession()
     {
         if (heartbeatCoroutine != null)
         {
-            StopCoroutine(
-                heartbeatCoroutine
-            );
+            StopCoroutine(heartbeatCoroutine);
 
             heartbeatCoroutine = null;
         }
 
-
         currentCharacterId = 0;
-
 
         Debug.Log(
             "[NetworkClient] Heartbeat encerrado."
         );
     }
-
 
     // =====================================================
     // DESTROY
@@ -366,6 +354,8 @@ public class NetworkClient : MonoBehaviour
     {
         if (Instance == this)
         {
+            StopPlayerSession();
+
             Instance = null;
         }
     }
