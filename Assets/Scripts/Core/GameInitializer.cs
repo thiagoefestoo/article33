@@ -1,5 +1,21 @@
+
 using System.Collections;
 using UnityEngine;
+
+// =====================================================
+// ARTIGO33 - GAME INITIALIZER
+// UNITY 6 + FISHNET + AWS EC2 + NEON
+//
+// CLIENTE:
+// - Validar sessao e autenticacao
+// - Aguardar inicializacao do FishNet
+// - Carregar personagem pela API HTTPS
+//
+// SERVIDOR DEDICADO:
+// - Nao exigir login ou PlayerSession
+// - Nao carregar personagem local
+// - Deixar FishNet Bootstrap iniciar servidor
+// =====================================================
 
 public class GameInitializer : MonoBehaviour
 {
@@ -9,6 +25,7 @@ public class GameInitializer : MonoBehaviour
 
     private bool loadStarted = false;
 
+    private Coroutine initializationCoroutine;
 
     // =====================================================
     // AWAKE
@@ -17,10 +34,9 @@ public class GameInitializer : MonoBehaviour
     private void Awake()
     {
         Debug.Log(
-            "===== AWAKE GAME INITIALIZER ====="
+            "[GAME] GameInitializer inicializado."
         );
     }
-
 
     // =====================================================
     // START
@@ -28,52 +44,66 @@ public class GameInitializer : MonoBehaviour
 
     private void Start()
     {
+#if UNITY_SERVER
+
+        // O servidor dedicado nao representa um jogador.
+        // Portanto nao precisa de login ou personagem.
+
         Debug.Log(
-            "===== START GAME INITIALIZER ====="
+            "[GAME] Executando em modo Dedicated Server."
         );
 
-        StartCoroutine(
-            InitializeGame()
+        Debug.Log(
+            "[GAME] Inicializacao da rede delegada ao " +
+            "Artigo33NetworkBootstrap."
         );
+
+#else
+
+        Debug.Log(
+            "[GAME] Inicializando cliente Artigo33."
+        );
+
+        initializationCoroutine =
+            StartCoroutine(InitializeGame());
+
+#endif
     }
 
-
     // =====================================================
-    // INICIALIZAÇÃO
+    // INICIALIZACAO DO CLIENTE
     // =====================================================
 
     private IEnumerator InitializeGame()
     {
         // =============================================
-        // PLAYER SESSION
+        // VALIDAR PLAYER SESSION
         // =============================================
 
         if (PlayerSession.Instance == null)
         {
             Debug.LogError(
-                "[GAME] PlayerSession NÃO EXISTE."
+                "[GAME] PlayerSession nao encontrado."
             );
 
             yield break;
         }
 
-
         // =============================================
-        // USUÁRIO AUTENTICADO
+        // VALIDAR AUTENTICACAO
         // =============================================
 
         if (!PlayerSession.Instance.authenticated)
         {
             Debug.LogWarning(
-                "[GAME] Nenhum usuário autenticado."
+                "[GAME] Nenhum usuario autenticado."
             );
 
             yield break;
         }
 
-
         // =============================================
-        // PERSONAGEM SELECIONADO
+        // VALIDAR PERSONAGEM
         // =============================================
 
         if (PlayerSession.Instance.characterId <= 0)
@@ -85,110 +115,123 @@ public class GameInitializer : MonoBehaviour
             yield break;
         }
 
-
         // =============================================
-        // UNITY SERVICE
+        // VALIDAR UNITY SERVICE
         // =============================================
 
         if (UnityService.Instance == null)
         {
             Debug.LogError(
-                "[GAME] UnityService NÃO EXISTE."
+                "[GAME] UnityService nao encontrado."
             );
 
             yield break;
         }
 
-
         // =============================================
-        // AGUARDA BOOTSTRAP MULTIPLAYER
+        // AGUARDAR FISHNET BOOTSTRAP
         // =============================================
 
         Debug.Log(
-            "[GAME] Aguardando inicialização do multiplayer..."
+            "[GAME] Aguardando FishNet Bootstrap..."
         );
 
         float elapsedTime = 0f;
-
 
         while (
             Artigo33NetworkBootstrap.Instance == null &&
             elapsedTime < networkTimeoutSeconds
         )
         {
-            elapsedTime +=
-                Time.unscaledDeltaTime;
+            elapsedTime += Time.unscaledDeltaTime;
 
             yield return null;
         }
 
+        Artigo33NetworkBootstrap bootstrap =
+            Artigo33NetworkBootstrap.Instance;
 
-        if (
-            Artigo33NetworkBootstrap.Instance == null
-        )
+        if (bootstrap == null)
         {
             Debug.LogError(
-                "[GAME] MultiplayerBootstrap não foi encontrado."
+                "[GAME] MultiplayerBootstrap nao encontrado."
             );
 
             yield break;
         }
 
+        // =============================================
+        // AGUARDAR REDE PRONTA
+        // =============================================
 
-        // =============================================
-        // AGUARDA REDE PRONTA
-        // =============================================
+        Debug.Log(
+            "[GAME] Aguardando conexao FishNet..."
+        );
 
         while (
-            !Artigo33NetworkBootstrap.Instance.IsNetworkReady &&
+            !bootstrap.IsNetworkReady &&
             elapsedTime < networkTimeoutSeconds
         )
         {
-            elapsedTime +=
-                Time.unscaledDeltaTime;
+            elapsedTime += Time.unscaledDeltaTime;
 
             yield return null;
         }
 
-
-        if (
-            !Artigo33NetworkBootstrap.Instance.IsNetworkReady
-        )
+        if (!bootstrap.IsNetworkReady)
         {
             Debug.LogError(
-                "[GAME] Timeout aguardando conexão com "
-                + "o servidor multiplayer."
+                "[GAME] Timeout aguardando multiplayer."
             );
 
             yield break;
         }
 
-
         Debug.Log(
-            "[GAME] Rede multiplayer pronta."
+            "[GAME] FishNet inicializado."
         );
 
-
         // =============================================
-        // EVITA DUPLICIDADE
+        // EVITAR CARREGAMENTO DUPLICADO
         // =============================================
 
         if (loadStarted)
         {
             Debug.LogWarning(
-                "[GAME] Carregamento do personagem "
-                + "já foi iniciado."
+                "[GAME] Carregamento ja iniciado."
             );
 
             yield break;
         }
 
+        // =============================================
+        // REVALIDAR SESSAO
+        // =============================================
 
-        loadStarted = true;
+        if (
+            PlayerSession.Instance == null ||
+            !PlayerSession.Instance.authenticated ||
+            PlayerSession.Instance.characterId <= 0
+        )
+        {
+            Debug.LogError(
+                "[GAME] Sessao invalida apos conexao."
+            );
 
+            yield break;
+        }
+
+        if (UnityService.Instance == null)
+        {
+            Debug.LogError(
+                "[GAME] UnityService indisponivel."
+            );
+
+            yield break;
+        }
 
         // =============================================
-        // DADOS DA SESSÃO
+        // OBTER IDENTIFICADORES
         // =============================================
 
         int userId =
@@ -197,27 +240,58 @@ public class GameInitializer : MonoBehaviour
         int characterId =
             PlayerSession.Instance.characterId;
 
+        if (userId <= 0 || characterId <= 0)
+        {
+            Debug.LogError(
+                "[GAME] Identificadores invalidos."
+            );
 
-        Debug.Log(
-            "[GAME] Carregando personagem selecionado."
-        );
-
-
-        Debug.Log(
-            "[GAME] UserId: "
-            + userId
-            + " | CharacterId: "
-            + characterId
-        );
-
+            yield break;
+        }
 
         // =============================================
-        // CARREGA DADOS DO BACKEND
+        // ATUALIZAR GAME NETWORK MANAGER
         // =============================================
+
+        if (GameNetworkManager.Instance != null)
+        {
+            GameNetworkManager.Instance.RefreshSession();
+        }
+
+        // =============================================
+        // CARREGAR PERSONAGEM PELA API
+        // =============================================
+
+        loadStarted = true;
+
+        Debug.Log(
+            "[GAME] Carregando personagem via API HTTPS."
+        );
+
+        Debug.Log(
+            "[GAME] UserId: " +
+            userId +
+            " | CharacterId: " +
+            characterId
+        );
 
         UnityService.Instance.LoadPlayer(
             userId,
             characterId
         );
+    }
+
+    // =====================================================
+    // DESTROY
+    // =====================================================
+
+    private void OnDestroy()
+    {
+        if (initializationCoroutine != null)
+        {
+            StopCoroutine(initializationCoroutine);
+
+            initializationCoroutine = null;
+        }
     }
 }
