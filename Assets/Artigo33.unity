@@ -2435,7 +2435,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Artigo33NetworkBootstrap
   networkManager: {fileID: 385964550}
   startMode: 0
-  serverAddress: localhost
+  serverAddress: 54.94.200.173
   serverPort: 7770
   localServerAddress: 127.0.0.1
 --- !u!4 &1779433623
