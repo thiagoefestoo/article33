@@ -1,10 +1,28 @@
+
+using System;
 using System.Collections;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
+
+// =====================================================
+// ARTIGO33 - LOGIN MANAGER
+// UNITY 6 + AWS HTTPS + NEON POSTGRESQL
+//
+// Responsabilidades:
+// - Enviar login para a API
+// - Validar a resposta
+// - Atualizar PlayerSession
+// - Retornar resultado para a interface
+// =====================================================
 
 public class LoginManager : MonoBehaviour
 {
     public static LoginManager Instance;
+
+    // =====================================================
+    // SINGLETON
+    // =====================================================
 
     private void Awake()
     {
@@ -19,10 +37,14 @@ public class LoginManager : MonoBehaviour
         }
     }
 
+    // =====================================================
+    // LOGIN PUBLICO
+    // =====================================================
+
     public void Login(
         string username,
         string password,
-        System.Action<bool, string> callback
+        Action<bool, string> callback
     )
     {
         StartCoroutine(
@@ -34,127 +56,166 @@ public class LoginManager : MonoBehaviour
         );
     }
 
+    // =====================================================
+    // COMUNICACAO COM A API
+    // =====================================================
+
     private IEnumerator LoginCoroutine(
         string username,
         string password,
-        System.Action<bool, string> callback
+        Action<bool, string> callback
     )
     {
+        if (string.IsNullOrWhiteSpace(ApiConfig.BaseURL))
+        {
+            Debug.LogError("[AUTH] URL da API não configurada.");
+
+            callback?.Invoke(
+                false,
+                "Servidor não configurado."
+            );
+
+            yield break;
+        }
+
         string url =
-            ApiConfig.BaseURL +
+            ApiConfig.BaseURL.TrimEnd('/') +
             "/api/auth/login";
 
-        LoginRequest loginRequest =
-            new LoginRequest
-            {
-                username = username,
-                password = password
-            };
+        LoginRequest loginRequest = new LoginRequest
+        {
+            username = username,
+            password = password
+        };
 
-        string json =
-            JsonUtility.ToJson(loginRequest);
+        string json = JsonUtility.ToJson(loginRequest);
 
-        byte[] body =
-            System.Text.Encoding.UTF8.GetBytes(json);
+        byte[] body = Encoding.UTF8.GetBytes(json);
 
-        using UnityWebRequest request =
+        using (UnityWebRequest request =
             new UnityWebRequest(
                 url,
                 UnityWebRequest.kHttpVerbPOST
+            ))
+        {
+            request.uploadHandler = new UploadHandlerRaw(body);
+            request.downloadHandler = new DownloadHandlerBuffer();
+
+            request.SetRequestHeader(
+                "Content-Type",
+                "application/json"
             );
 
-        request.uploadHandler =
-            new UploadHandlerRaw(body);
+            request.timeout = 30;
 
-        request.downloadHandler =
-            new DownloadHandlerBuffer();
+            Debug.Log(
+                "[AUTH] Solicitando login via API HTTPS."
+            );
 
-        request.SetRequestHeader(
-            "Content-Type",
-            "application/json"
-        );
+            yield return request.SendWebRequest();
 
-        Debug.Log(
-            "[AUTH] Login solicitado: " +
-            username
-        );
+            // =================================================
+            // ERRO DE CONEXAO OU RESPOSTA HTTP
+            // =================================================
 
-        yield return request.SendWebRequest();
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                Debug.LogWarning(
+                    "[AUTH] Falha no login. HTTP: " +
+                    request.responseCode +
+                    " | " +
+                    request.error
+                );
 
-        if (
-            request.result !=
-            UnityWebRequest.Result.Success
-        )
-        {
-            string serverMessage =
+                string message =
+                    request.responseCode == 401
+                        ? "Usuário ou senha inválidos."
+                        : request.responseCode == 429
+                            ? "Muitas tentativas. Aguarde e tente novamente."
+                            : "Não foi possível realizar o login. Verifique a conexão ou tente novamente.";
+
+                callback?.Invoke(false, message);
+                yield break;
+            }
+
+            // =================================================
+            // VALIDAR RESPOSTA DO SERVIDOR
+            // =================================================
+
+            string responseJson =
                 request.downloadHandler != null
                     ? request.downloadHandler.text
-                    : request.error;
+                    : string.Empty;
 
-            Debug.LogError(
-                "[AUTH] Login recusado: " +
-                serverMessage
-            );
+            LoginResponse response;
 
-            callback?.Invoke(
-                false,
-                serverMessage
-            );
+            try
+            {
+                response = JsonUtility.FromJson<LoginResponse>(
+                    responseJson
+                );
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError(
+                    "[AUTH] Resposta JSON inválida: " +
+                    ex.Message
+                );
 
-            yield break;
-        }
+                callback?.Invoke(
+                    false,
+                    "Resposta inválida do servidor."
+                );
 
-        string responseJson =
-            request.downloadHandler.text;
+                yield break;
+            }
 
-        LoginResponse response =
-            JsonUtility.FromJson<LoginResponse>(
-                responseJson
-            );
+            if (response == null || response.userId <= 0)
+            {
+                callback?.Invoke(
+                    false,
+                    "Resposta de login inválida."
+                );
 
-        if (
-            response == null ||
-            response.userId <= 0
-        )
-        {
-            callback?.Invoke(
-                false,
-                "Resposta de login inválida."
-            );
+                yield break;
+            }
 
-            yield break;
-        }
+            // =================================================
+            // VALIDAR PLAYER SESSION
+            // =================================================
 
-        if (PlayerSession.Instance == null)
-        {
-            Debug.LogError(
-                "[AUTH] PlayerSession não encontrado."
-            );
+            if (PlayerSession.Instance == null)
+            {
+                Debug.LogError(
+                    "[AUTH] PlayerSession não encontrado."
+                );
 
-            callback?.Invoke(
-                false,
-                "PlayerSession não encontrado."
-            );
+                callback?.Invoke(
+                    false,
+                    "Sistema de sessão indisponível."
+                );
 
-            yield break;
-        }
+                yield break;
+            }
 
-        PlayerSession.Instance
-            .SetAuthenticatedUser(
+            // =================================================
+            // SALVAR USUARIO AUTENTICADO
+            // =================================================
+
+            PlayerSession.Instance.SetAuthenticatedUser(
                 response.userId,
                 response.username
             );
 
-        Debug.Log(
-            "[AUTH] Login realizado. UserId: " +
-            response.userId +
-            " | Username: " +
-            response.username
-        );
+            Debug.Log(
+                "[AUTH] Login concluído. UserId: " +
+                response.userId
+            );
 
-        callback?.Invoke(
-            true,
-            response.message
-        );
+            callback?.Invoke(
+                true,
+                response.message
+            );
+        }
     }
 }
